@@ -1,0 +1,30 @@
+version: '3'
+
+services:
+    master:
+        build: .
+        ports:
+            - "${EXTERNAL_PORT_MASTER}:${EXTERNAL_PORT_MASTER}"
+        command: node /app/master.mjs
+        env_file: 
+            - .env
+
+    secondary_1:
+        build: .
+        depends_on: 
+            - master
+        command: node /app/secondary.mjs
+        ports:
+            - "${EXTERNAL_PORT_SEC_1}:${EXTERNAL_PORT_SEC}"
+        env_file: 
+            - .env
+    
+    secondary_2:
+        build: .
+        depends_on: 
+            - master
+        command: node /app/secondary.mjs
+        ports:
+            - "${EXTERNAL_PORT_SEC_2}:${EXTERNAL_PORT_SEC}"
+        env_file: 
+            - .env
