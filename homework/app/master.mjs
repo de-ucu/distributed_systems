@@ -69,6 +69,7 @@ const requestListener = async (req, res) => {
 
     switch (METHOD) {
         case "POST":
+            console.log("POST");            
             spreadMessages(req, res);
             break;
         case "GET":
