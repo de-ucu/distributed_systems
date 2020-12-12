@@ -1,43 +1,75 @@
 import url from 'url';
 import http from 'http';
 
-const MESSAGES = [];
-const { EXTERNAL_PORT_MASTER, INTERNAL_PORT_SEC, SECONDARY_COUNT } = process.env;
 
-const sendMessage = (message, host) => {
+const MESSAGES = [];
+const { EXTERNAL_PORT_MASTER, INTERNAL_PORT_SEC, SECONDARY_COUNT, TIMEOUT } = process.env;
+
+
+const spreadMessages = async (req, res) => {
+    const { query } = url.parse(req.url, true);
+    const { message, w } = query;
+    
+    const acksNeeded = w || +SECONDARY_COUNT + 1;
+    let acksReceived = 0;
+
+    MESSAGES.push(message);
+    acksReceived += 1;
+
     const options = {
-        hostname: host,
         port: INTERNAL_PORT_SEC,
         path: `/?message=${message}`,
         method: 'POST',
     };
 
-    return new Promise((resolve) => {
-        const req = http.request(options, resolve);
-        req.end();    
-    });
+    try {
+        await new Promise((resolve, reject) => {
+            if (acksReceived == acksNeeded) {
+                resolve();
+            }
+    
+            for (let i = 1; i <= SECONDARY_COUNT; i++) {
+                const secondaryRequest = http.request(`http://secondary_${i}`, options, (internalResponse) => {
+                    if (internalResponse.statusCode == 200) {
+                        acksReceived += 1;
+                    }
+                    if (acksReceived == acksNeeded) {
+                        resolve();
+                    }
+                });
+
+                setTimeout(() => {
+                    secondaryRequest.abort();
+                    reject(new Error("Timeout"));
+                }, TIMEOUT);
+
+                secondaryRequest.on("error", (e) => {
+                    console.log(e);
+                });
+
+                secondaryRequest.end();
+            }
+        })
+    } catch (e) {
+        console.log(e)
+    } finally {
+        if (acksReceived == acksNeeded) {
+            res.writeHead(200);
+            res.end(`Message "${message}" was delivered after ${acksNeeded} acks`);
+        } else {
+            res.writeHead(500);
+            res.end(`Message "${message}" was not delivered`);
+        }
+    }
 };
 
-const spreadMessages = (message, hostsCount) => {
-    const responsePromises = [];
-    for (let i = 1; i <= hostsCount; i++) {
-        responsePromises.push(sendMessage(message, `secondary_${i}`));
-    }
-    return Promise.all(responsePromises);
-};
 
 const requestListener = async (req, res) => {
     const { method: METHOD } = req;
-    const { query } = url.parse(req.url, true);
 
     switch (METHOD) {
         case "POST":
-            console.log("POST, message received");
-            await spreadMessages(query["message"], SECONDARY_COUNT);
-            MESSAGES.push(query["message"]);
-            res.writeHead(200);
-            res.end();
-            console.log(`message spread accross ${SECONDARY_COUNT} nodes`);
+            spreadMessages(req, res);
             break;
         case "GET":
             console.log("GET");
